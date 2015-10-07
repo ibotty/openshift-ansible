@@ -1,0 +1,53 @@
+---
+
+- name: Ensure flannel is installed
+  yum: 
+    pkg: flannel
+    state: present
+  when: not is_atomic
+
+- name: flannel config
+  lineinfile:
+    dest: /etc/sysconfig/flanneld
+    regexp: "{{ item.key }}="
+    line: "{{ item.key }}={{ item.value }}"
+  with_dict:
+    FLANNEL_ETCD: "{{ openshift.common.etcd_urls | join(',') }}"
+    FLANNEL_ETCD_KEY: "{{ flannel_etcd_key }}"
+  notify:
+  - restart flannel
+
+- name: "flannel config: etcd certs"
+  lineinfile:
+    dest: /etc/sysconfig/flanneld
+    regexp: 'FLANNEL_OPTIONS='
+    line: >
+        FLANNEL_OPTIONS="--etcd-cafile=/etc/flannel/etcd-ca.crt
+        --etcd-certfile=/etc/flannel/etcd-client.crt
+        --etcd-keyfile=/etc/flannel/etcd-client.key"
+  notify:
+  - restart flannel
+
+- name: flannel running and enabled
+  service:
+    name: flanneld
+    state: started
+    enabled: yes
+  register: flannel_started
+
+- name: docker is temporarily stopped
+  service:
+    name: docker.service
+    state: stopped
+  when: flannel_started.changed
+
+- name: delete docker net device
+  shell: "(/sbin/ip l show | grep -q docker0 ) && /sbin/ip l delete docker0"
+  ignore_errors: yes
+  when: flannel_started.changed
+
+- name: docker is running
+  service:
+    name: docker.service
+    state: running
+

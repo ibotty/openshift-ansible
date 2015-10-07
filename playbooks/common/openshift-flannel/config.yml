@@ -1,0 +1,138 @@
+---
+
+- name: 
+  hosts: oo_flannel_to_config
+  roles:
+  - openshift_facts
+  tasks:
+  - set_fact:
+      openshift_master_etcd_port: "{{ (etcd_client_port | default('2379')) if (groups.oo_etcd_to_config is defined and groups.oo_etcd_to_config) else none }}"
+      openshift_master_etcd_hosts: "{{ hostvars
+                                       | oo_select_keys(groups['oo_etcd_to_config']
+                                                        | default([]))
+                                       | oo_collect('openshift.common.hostname')
+                                       | default(none, true) }}"
+  - openshift_facts:
+      role: common
+      local_facts:
+        etcd_hosts: "{{ openshift_master_etcd_hosts | default(None)}}"
+        etcd_port: "{{ openshift_master_etcd_port | default(None) }}"
+        etcd_use_ssl: "{{ openshift_master_etcd_use_ssl | default(None) }}"
+        etcd_urls: "{{ openshift_master_etcd_urls | default(None) }}"
+
+  - name: Check status of external etcd certificatees
+    stat:
+      path: "/etc/flannel/{{ item }}"
+    with_items:
+    - etcd-client.crt
+    - etcd-ca.crt
+    register: g_etcd_cert_stat_result
+  - set_fact:
+      etcd_client_certs_missing: "{{ g_etcd_cert_stat_result.results
+                                    | map(attribute='stat.exists')
+                                    | list | intersect([false])}}"
+      etcd_cert_subdir: flannel-{{ openshift.common.hostname }}
+      etcd_cert_config_dir: "/etc/flannel"
+      etcd_cert_prefix: etcd-
+    when: groups.oo_etcd_to_config is defined and groups.oo_etcd_to_config
+
+- name: Create temp directory for syncing certs
+  hosts: localhost
+  connection: local
+  sudo: false
+  gather_facts: no
+  tasks:
+  - name: Create local temp directory for syncing certs
+    local_action: command mktemp -d /tmp/openshift-ansible-XXXXXXX
+    register: g_flannel_mktemp
+    changed_when: False
+
+- name: Configure etcd certificates
+  hosts: oo_first_etcd
+  vars:
+    etcd_generated_certs_dir: /etc/etcd/generated_certs
+    etcd_needing_client_certs: "{{ hostvars
+                                   | oo_select_keys(groups['oo_flannel_to_config'])
+                                   | oo_filter_list(filter_attr='etcd_client_certs_missing') }}"
+    sync_tmpdir: "{{ hostvars.localhost.g_flannel_mktemp.stdout }}"
+  roles:
+  - etcd_certificates
+  post_tasks:
+  - name: Create a tarball of the etcd certs
+    command: >
+      tar -czvf {{ etcd_generated_certs_dir }}/{{ item.etcd_cert_subdir }}.tgz
+        -C {{ etcd_generated_certs_dir }}/{{ item.etcd_cert_subdir }} .
+    args:
+      creates: "{{ etcd_generated_certs_dir }}/{{ item.etcd_cert_subdir }}.tgz"
+    with_items: etcd_needing_client_certs
+  - name: Retrieve the etcd cert tarballs
+    fetch:
+      src: "{{ etcd_generated_certs_dir }}/{{ item.etcd_cert_subdir }}.tgz"
+      dest: "{{ sync_tmpdir }}/"
+      flat: yes
+      fail_on_missing: yes
+      validate_checksum: yes
+    with_items: etcd_needing_client_certs
+
+- name: Copy the external etcd certs to the hosts
+  hosts: oo_flannel_to_config
+  vars:
+    sync_tmpdir: "{{ hostvars.localhost.g_flannel_mktemp.stdout }}"
+  tasks:
+  - name: Ensure certificate directory exists
+    file:
+      path: "{{ etcd_cert_config_dir }}"
+      state: directory
+    when: etcd_client_certs_missing is defined and etcd_client_certs_missing
+  - name: Unarchive the tarball on the hosts
+    unarchive:
+      src: "{{ sync_tmpdir }}/{{ etcd_cert_subdir }}.tgz"
+      dest: "{{ etcd_cert_config_dir }}"
+    when: etcd_client_certs_missing is defined and etcd_client_certs_missing
+  - file:
+      path: "{{ etcd_cert_config_dir }}/{{ item }}"
+      owner: root
+      group: root
+      mode: 0600
+    with_items:
+    - etcd-client.crt
+    - etcd-client.key
+    - etcd-ca.crt
+    when: etcd_client_certs_missing is defined and etcd_client_certs_missing
+
+- name: Configure etcd certificates
+  hosts: oo_first_flannel
+  vars:
+    flannel_etcd_key: "/coreos.com/network"
+    etcdctl: >
+        etcdctl --cert-file=/etc/flannel/etcd-client.crt \
+                --key-file=/etc/flannel/etcd-client.key  \
+                --ca-file=/etc/flannel/etcd-ca.crt       \
+                --peers={{ openshift.common.etcd_urls | join(',') }}
+  tasks:
+  - name: flannel config
+    template: 
+      src: roles/flannel/templates/flannel.conf
+      dest: /etc/flannel/conf
+    changed_when: false
+
+  - name: compare flannel template with live config
+    shell: >
+        {{ etcdctl }} get {{ flannel_etcd_key }}/config |
+        diff -q - /etc/flannel/conf
+    register: flannel_conf_diff_result
+    changed_when: flannel_conf_diff_result.rc == 1
+    failed_when: flannel_conf_diff_result.rc == 2
+
+  - name: apply flannel config
+    shell: >
+        {{ etcdctl }} set {{ flannel_etcd_key }}/config
+        < /etc/flannel/conf
+    when: flannel_conf_diff_result | changed
+
+- name: 
+  hosts: oo_flannel_to_config
+  vars:
+    flannel_etcd_key: "/coreos.com/network"
+  roles:
+  - role: flannel

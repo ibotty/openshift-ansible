@@ -370,32 +370,39 @@ def set_url_facts_if_unset(facts):
             dict: the facts dict updated with the generated url facts if they
                   were not already present
     """
+    if 'common' in facts:
+        etcd_use_ssl = facts['common']['etcd_use_ssl']
+        etcd_hosts = facts['common']['etcd_hosts']
+        etcd_port = facts['common']['etcd_port']
+
+        if 'etcd_urls' not in facts['common']:
+            etcd_urls = []
+            if etcd_hosts != '':
+                facts['common']['etcd_port'] = etcd_port
+                for host in etcd_hosts:
+                    etcd_urls.append(format_url(etcd_use_ssl, host,
+                                                etcd_port))
+            else:
+                hostname = facts['common']['hostname']
+                etcd_urls = [format_url(etcd_use_ssl, hostname,
+                                        etcd_port)]
+            facts['common']['etcd_urls'] = etcd_urls
+
     if 'master' in facts:
+        if 'etcd_urls' not in facts['common']:
+            if etcd_hosts != '':
+                facts['master']['embedded_etcd'] = False
+
         api_use_ssl = facts['master']['api_use_ssl']
         api_port = facts['master']['api_port']
         console_use_ssl = facts['master']['console_use_ssl']
         console_port = facts['master']['console_port']
         console_path = facts['master']['console_path']
-        etcd_use_ssl = facts['master']['etcd_use_ssl']
-        etcd_hosts = facts['master']['etcd_hosts']
-        etcd_port = facts['master']['etcd_port']
         hostname = facts['common']['hostname']
         public_hostname = facts['common']['public_hostname']
         cluster_hostname = facts['master'].get('cluster_hostname')
         cluster_public_hostname = facts['master'].get('cluster_public_hostname')
 
-        if 'etcd_urls' not in facts['master']:
-            etcd_urls = []
-            if etcd_hosts != '':
-                facts['master']['etcd_port'] = etcd_port
-                facts['master']['embedded_etcd'] = False
-                for host in etcd_hosts:
-                    etcd_urls.append(format_url(etcd_use_ssl, host,
-                                                etcd_port))
-            else:
-                etcd_urls = [format_url(etcd_use_ssl, hostname,
-                                        etcd_port)]
-            facts['master']['etcd_urls'] = etcd_urls
         if 'api_url' not in facts['master']:
             api_hostname = cluster_hostname if cluster_hostname else hostname
             facts['master']['api_url'] = format_url(api_use_ssl, api_hostname,
@@ -489,6 +496,22 @@ def set_deployment_facts_if_unset(facts):
 
     return facts
 
+def set_flannel_facts_if_unset(facts):
+    """ Set flannel facts if not already present in facts dict
+
+        Args:
+            facts (dict): existing facts
+        Returns:
+            dict: the facts dict updated with the generated flannel facts if
+                  they were not already present
+    """
+    if 'common' in facts:
+        use_flannel = facts['common']['use_flannel']
+        if not (use_flannel == '' or isinstance(use_flannel, bool)):
+            use_flannel = bool(strtobool(str(use_flannel)))
+            facts['common']['use_openshift_flannel'] = use_flannel
+
+    return facts
 
 def set_sdn_facts_if_unset(facts):
     """ Set sdn facts if not already present in facts dict
@@ -786,6 +809,7 @@ class OpenShiftFacts(object):
         facts = set_metrics_facts_if_unset(facts)
         facts = set_identity_providers_if_unset(facts)
         facts = set_sdn_facts_if_unset(facts)
+        facts = set_flannel_facts_if_unset(facts)
         facts = set_deployment_facts_if_unset(facts)
         facts = set_aggregate_facts(facts)
         facts = self.init_in_docker_facts(facts)
@@ -811,7 +835,8 @@ class OpenShiftFacts(object):
 
         common = dict(use_openshift_sdn=True, ip=ip_addr, public_ip=ip_addr,
                       deployment_type='origin', hostname=hostname,
-                      public_hostname=hostname)
+                      public_hostname=hostname, use_flannel=False,
+                      etcd_use_ssl=True, etcd_hosts='', etcd_port='4001')
 
         common['client_binary'] = 'oc' if os.path.isfile('/usr/bin/oc') else 'osc'
         common['admin_binary'] = 'oadm' if os.path.isfile('/usr/bin/oadm') else 'osadm'
@@ -821,8 +846,7 @@ class OpenShiftFacts(object):
         if 'master' in roles:
             master = dict(api_use_ssl=True, api_port='8443',
                           console_use_ssl=True, console_path='/console',
-                          console_port='8443', etcd_use_ssl=True, etcd_hosts='',
-                          etcd_port='4001', portal_net='172.30.0.0/16',
+                          console_port='8443', portal_net='172.30.0.0/16',
                           embedded_etcd=True, embedded_kube=True,
                           embedded_dns=True, dns_port='53',
                           bind_addr='0.0.0.0', session_max_seconds=3600,

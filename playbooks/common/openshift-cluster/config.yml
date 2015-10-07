@@ -23,6 +23,14 @@
       ansible_sudo: "{{ g_sudo | default(omit) }}"
     with_items: groups[g_etcd_group] | default([])
 
+  # - name: Evaluate oo_flannel_to_config
+  #   add_host:
+  #     name: "{{ item }}"
+  #     groups: oo_flannel_to_config
+  #     ansible_ssh_user: "{{ g_ssh_user | default(omit) }}"
+  #     ansible_sudo: "{{ g_sudo | default(omit) }}"
+  #   with_items: groups[g_flannel_group] | default([])
+
   - name: Evaluate oo_masters_to_config
     add_host:
       name: "{{ item }}"
@@ -56,6 +64,14 @@
       ansible_sudo: "{{ g_sudo | default(omit) }}"
     when: g_etcd_group in groups and (groups[g_etcd_group] | length) > 0
 
+  - name: Evaluate oo_first_flannel
+    add_host:
+      name: "{{ groups['oo_flannel_to_config'][0] }}"
+      groups: oo_first_flannel
+      ansible_ssh_user: "{{ g_ssh_user | default(omit) }}"
+      ansible_sudo: "{{ g_sudo | default(omit) }}"
+    when: (groups['oo_flannel_to_config'] | length) > 0
+
   - name: Evaluate oo_first_master
     add_host:
       name: "{{ groups[g_masters_group][0] }}"
@@ -64,11 +80,15 @@
       ansible_sudo: "{{ g_sudo | default(omit) }}"
     when: g_masters_group in groups and (groups[g_masters_group] | length) > 0
 
-- include: ../openshift-etcd/config.yml
+#- include: ../openshift-etcd/config.yml
 
-- include: ../openshift-master/config.yml
+#- include: ../openshift-master/config.yml
 
-- include: ../openshift-node/config.yml
-  vars:
-    osn_cluster_dns_domain: "{{ hostvars[groups.oo_first_master.0].openshift.dns.domain }}"
-    osn_cluster_dns_ip: "{{ hostvars[groups.oo_first_master.0].openshift.dns.ip }}"
+#- include: ../openshift-node/config.yml
+#  vars:
+#    osn_cluster_dns_domain: "{{ hostvars[groups.oo_first_master.0].openshift.dns.domain }}"
+#    osn_cluster_dns_ip: "{{ hostvars[groups.oo_first_master.0].openshift.dns.ip }}"
+
+- name: Include flannel playbook
+  include: ../openshift-flannel/config.yml
+  when: openshift.common.use_flannel | bool
