@@ -2,5 +2,5 @@
 
 - name: restart flannel
   service:
-    name: flannel
+    name: flanneld
     state: restarted
