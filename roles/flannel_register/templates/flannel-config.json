@@ -3,6 +3,6 @@
     "SubnetLen": {{ flannel_subnet_len }},
     "SubnetMin": "{{ flannel_min_network }}",
     "Backend": {
-        "Type": "host-gw"
+        "Type": "{{ flannel_backend_type }}"
      }
 }

@@ -18,6 +18,7 @@ Role Variables
 | flannel_min_network | {{ min_network }} or 172.16.5.0                    | beginning of IP range for the subnet allocation |
 | flannel_subnet_len  | /openshift.com/network                             | size of the subnet allocated to each host       |
 | flannel_etcd_key    | /openshift.com/network                             | etcd prefix                                     |
+| flannel_backend_type| host-gw                                            | flannel backend type                            |
 | etcd_hosts          | etcd_urls                                          | a list of etcd endpoints                        |
 | etcd_conf_dir       | {{ openshift.common.config_base }}/master          | SSL certificates directory                      |
 | etcd_peer_ca_file   | {{ etcd_conf_dir }}/ca.crt                         | SSL CA to use for etcd                          |
