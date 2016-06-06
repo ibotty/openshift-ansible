@@ -5,4 +5,8 @@
 
 - name: Deploy logging
   include: "{{ role_path }}/tasks/deploy_logging.yaml"
-  when: not openshift_hosted_logging_cleanup | default(false) | bool
+  when: openshift_hosted_logging_deploy | default(false) | bool
+
+- name: Upgrade logging
+  include: "{{ role_path }}/tasks/upgrade_logging.yaml"
+  when: openshift_hosted_logging_upgrade | default(false) | bool

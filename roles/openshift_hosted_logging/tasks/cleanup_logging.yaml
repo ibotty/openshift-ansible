@@ -19,15 +19,14 @@
 
 
   - name: "Cleanup any previous logging infrastructure"
-    command: "{{ openshift.common.client_binary }} --config={{ mktemp.stdout }}/admin.kubeconfig delete --ignore-not-found all --selector logging-infra={{ item }}"
+    command: "{{ openshift.common.client_binary }} --config={{ mktemp.stdout }}/admin.kubeconfig delete --ignore-not-found {{ item.to_remove |default('all') }} --selector logging-infra={{ item.component }}"
     with_items:
-      - kibana
-      - fluentd
-      - elasticsearch
-    ignore_errors: yes
-
-  - name: "Cleanup existing support infrastructure"
-    command: "{{ openshift.common.client_binary }} --config={{ mktemp.stdout }}/admin.kubeconfig delete --ignore-not-found all,sa,oauthclient --selector logging-infra=support"
+    - component: kibana
+    - component: elasticsearch
+    - component: fluentd
+      to_remove: all,daemonset
+    - component: support
+      to_remove: all,sa,oauthclient
     ignore_errors: yes
 
   - name: "Cleanup existing secrets"
@@ -38,7 +37,6 @@
 
   - name: "Cleanup existing logging deployers"
     command: "{{ openshift.common.client_binary }} --config={{ mktemp.stdout }}/admin.kubeconfig delete pods --all"
-
 
   - name: "Cleanup logging project"
     command: "{{ openshift.common.client_binary }} --config={{ mktemp.stdout }}/admin.kubeconfig delete project logging"

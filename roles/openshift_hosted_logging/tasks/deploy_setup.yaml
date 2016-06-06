@@ -1,0 +1,92 @@
+---
+  - fail: msg="This role requires the following vars to be defined. openshift_hosted_logging_master_public_url, openshift_hosted_logging_hostname, openshift_hosted_logging_elasticsearch_cluster_size"
+    when: "logging_hostname is not defined and
+          openshift_hosted_logging_elasticsearch_cluster_size is not defined or
+          master_public_url is not defined"
+
+  - fail: msg="This role requires the vars to be defined if openshift_hosted_logging_ops_hostname is defined. openshift_hosted_logging_ops_hostname, openshift_hosted_logging_ops_elasticsearch_cluster_size."
+    when: "enable_ops | bool and 
+          (openshift_hosted_logging_ops_elasticsearch_cluster_size is not defined or
+           openshift_hosted_logging_ops_hostname is not defined)"
+
+  - name: Create temp directory for kubeconfig
+    command: mktemp -d /tmp/openshift-ansible-XXXXXX
+    register: mktemp
+    changed_when: False
+
+  - name: Copy the admin client config(s)
+    command: >
+      cp {{ openshift_master_config_dir }}/admin.kubeconfig {{ mktemp.stdout }}/admin.kubeconfig
+    changed_when: False
+
+  - name: "Create logging project"
+    command: >
+      {{ openshift.common.admin_binary }} --config={{ mktemp.stdout }}/admin.kubeconfig new-project logging
+    register: new_project_output
+    changed_when: "'exists' not in new_project_output.stderr"
+    failed_when: "new_project_output.rc == 1 and 'exists' not in new_project_output.stderr"
+
+  - name: "Changing projects"
+    command: >
+      {{ openshift.common.client_binary }} --config={{ mktemp.stdout }}/admin.kubeconfig project logging
+    changed_when: False
+
+  - name: "Create deployer template"
+    command: >
+      {{ openshift.common.client_binary }} --config={{ mktemp.stdout }}/admin.kubeconfig create -f {{ logging_template_file }}
+    register: template_create
+    changed_when: "'exists' not in template_create.stderr"
+    failed_when: "template_create.rc == 1 and 'exists' not in template_create.stderr"
+
+  - name: "Update deployer template"
+    command: >
+      {{ openshift.common.client_binary }} --config={{ mktemp.stdout }}/admin.kubeconfig replace -f {{ logging_template_file }}
+    register: template_replace
+    changed_when: "'exists' not in template_replace.stderr"
+    failed_when: "template_replace.rc == 1 and 'exists' not in template_replace.stderr"
+    when: "'exists' in template_create.stderr"
+
+  # TODO: allow setting certificates, etc
+  - name: "Creating logging deployer secret"
+    command: >
+      {{ openshift.common.client_binary }} --config={{ mktemp.stdout }}/admin.kubeconfig secrets new logging-deployer {{ openshift_hosted_logging_secret_vars | default('nothing=/dev/null') }}
+    register: secret_output
+    changed_when: "'exists' not in secret_output.stderr"
+    failed_when: "secret_output.rc == 1 and 'exists' not in secret_output.stderr"
+
+  - name: Create supporting service accounts
+    command: >
+        {{ openshift.common.client_binary }} --config={{ mktemp.stdout }}/admin.kubeconfig new-app logging-deployer-account-template
+    register: create_sas
+    failed_when: "create_sas.rc == 1 and 'exists' not in create_sas.stderr"
+
+  - name: "Set permissions for logging-deployer service account"
+    command: >
+        {{ openshift.common.client_binary }} --config={{ mktemp.stdout }}/admin.kubeconfig policy add-role-to-user {{ item }} system:serviceaccount:logging:logging-deployer
+    register: permiss_output
+    changed_when: "'exists' not in permiss_output.stderr"
+    failed_when: "permiss_output.rc == 1 and 'exists' not in permiss_output.stderr"
+    with_items:
+    - edit
+    - daemonset-admin
+
+  - name: "Set cluster permissions for logging-deployer service account"
+    command: >
+        {{ openshift.common.admin_binary}} policy add-cluster-role-to-user oauth-editor system:serviceaccount:logging:logging-deployer
+    register: fluentd2_output
+    changed_when: "'exists' not in fluentd2_output.stderr"
+    failed_when: "fluentd2_output.rc == 1 and 'exists' not in fluentd2_output.stderr"
+
+  - name: "Set permissions for fluentd"
+    command: >
+        {{ openshift.common.admin_binary}} policy add-scc-to-user privileged system:serviceaccount:logging:aggregated-logging-fluentd
+    register: fluentd_output
+    changed_when: "'exists' not in fluentd_output.stderr"
+    failed_when: "fluentd_output.rc == 1 and 'exists' not in fluentd_output.stderr"
+
+  - name: "Set additional permissions for fluentd"
+    command: >
+        {{ openshift.common.admin_binary}} policy add-cluster-role-to-user cluster-reader system:serviceaccount:logging:aggregated-logging-fluentd
+    register: fluentd2_output
+    changed_when: "'exists' not in fluentd2_output.stderr"
+    failed_when: "fluentd2_output.rc == 1 and 'exists' not in fluentd2_output.stderr"

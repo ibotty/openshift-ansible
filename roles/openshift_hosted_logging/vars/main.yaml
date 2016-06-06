@@ -1,6 +1,34 @@
-kh_kv: "KIBANA_HOSTNAME={{ openshift_hosted_logging_hostname | quote }}"
-es_cs_kv: "ES_CLUSTER_SIZE={{ openshift_hosted_logging_elasticsearch_cluster_size | string | quote }}"
-pmu_kv: "PUBLIC_MASTER_URL={{ openshift_hosted_logging_master_public_url | quote }}"
+logging_hostname: "{{ openshift_hosted_logging_hostname }}"
+logging_ops_hostname: "{{ openshift_hosted_logging_ops_hostname }}"
+
+master_public_url: "{{ openshift_hosted_logging_public_url | default(hostvars[groups.oo_first_master.0].openshift.master.public_api_url) }}"
+enable_ops: "{{ openshift_hosted_logging_enable_ops | bool | default (False) }}"
+
+default_ns: "{{ openshift_hosted_logging_default_nodeselector if openshift_hosted_logging_default_nodeselector is defined else '' }}"
+es_ns_kv: "{{ 'ES_NODESELECTOR=' ~ openshift_hosted_logging_elasticsearch_nodeselector | default(default_ns) if openshift_hosted_logging_elasticsearch_nodeselector is defined or default_ns else '' }}"
+kb_ns_kv: "{{ 'KIBANA_NODESELECTOR=' ~ openshift_hosted_logging_kibana_nodeselector | default(default_ns) | string | quote if openshift_hosted_logging_kibana_nodeselector is defined or default_ns else '' }}"
+cur_ns_kv: "{{ 'CURATOR_NODESELECTOR=' ~ openshift_hosted_logging_curator_nodeselector | default(default_ns) | string | quote if openshift_hosted_logging_curator_nodeselector is defined or default_ns else '' }}"
+flu_ns_kv: "{{ 'FLUENTD_NODESELECTOR=' ~ openshift_hosted_logging_fluentd_nodeselector | string | quote if openshift_hosted_logging_fluentd_nodeselector is defined else '' }}"
+
+pmu_kv: "PUBLIC_MASTER_URL={{ master_public_url | quote }}"
 ip_kv: "{{ 'IMAGE_PREFIX=' ~ target_registry | quote if target_registry is defined else '' }}"
-oc_process_values: "{{ kh_kv }},{{ es_cs_kv }},{{ pmu_kv }},{{ ip_kv }}"
+kh_kv: "KIBANA_HOSTNAME={{ logging_hostname | quote }}"
+es_cs_kv: "ES_CLUSTER_SIZE={{ openshift_hosted_logging_elasticsearch_cluster_size | string | quote }}"
+logging_process_values: "{{ [kh_kv, es_cs_kv, pmu_kv, ip_kv, flu_ns_kv, kb_ns_kv, es_ns_kv, cur_ns_kv] | join(',') }}"
+
+
+default_ops_ns: "{{ openshift_hosted_logging_ops_default_nodeselector if openshift_hosted_logging_ops_default_nodeselector is defined else '' }}"
+es_ops_ns_kv: "{{ 'ES_OPS_NODESELECTOR=' ~ openshift_hosted_logging_ops_elasticsearch_nodeselector | default(default_ops_ns) | string | quote if openshift_hosted_logging_ops_elasticsearch_nodeselector is defined or default_ops_ns else '' }}"
+kb_ops_ns_kv: "{{ 'KIBANA_OPS_NODESELECTOR=' ~ openshift_hosted_logging_ops_kibana_nodeselector  | default(default_ops_ns) | string | quote if openshift_hosted_logging_ops_kibana_nodeselector is defined or default_ops_ns else '' }}"
+cur_ops_ns_kv: "{{ 'CURATOR_OPS_NODESELECTOR=' ~ openshift_hosted_logging_ops_curator_nodeselector  | default(default_ops_ns) | string | quote if openshift_hosted_logging_ops_curator_nodeselector is defined or default_ops_ns else '' }}"
+
+kh_ops_kv: "KIBANA_OPS_HOSTNAME={{ logging_ops_hostname }}"
+es_ops_cs_kv: "ES_OPS_CLUSTER_SIZE={{ openshift_hosted_logging_ops_elasticsearch_cluster_size | string | quote }}"
+logging_ops_process_values: "{{ [kh_ops_kv, kb_ops_ns_kv, es_ops_ns_kv, cur_ops_ns_kv] | join(',') if enable_ops else '' }}"
+
+oc_process_values: "{{ [logging_process_values, logging_ops_process_values] | join(',') | regex_replace(',+',',') | regex_replace(',$','') }}"
+
 openshift_master_config_dir: "{{ openshift.common.config_base }}/master"
+examples_base: "{{ openshift.common.config_base if openshift.common.is_containerized | bool else '/usr/share/openshift' }}/examples"
+logging_deploy_type: "{{ 'origin' if deployment_type == 'origin' else 'enterprise' }}"
+logging_template_file: "{{ examples_base }}/infrastructure-templates/{{ logging_deploy_type }}/logging-deployer.yaml"

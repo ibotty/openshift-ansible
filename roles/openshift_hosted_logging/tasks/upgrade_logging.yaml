@@ -1,0 +1,20 @@
+---
+- include: deploy_setup.yaml
+
+- name: Show Deployer settings
+  debug:
+      msg: "running with options: {{ oc_process_values }}"
+
+- name: run the Deployer to upgrade the EFK stack
+  command: >
+      {{ openshift.common.client_binary }} --config={{ mktemp.stdout }}/admin.kubeconfig new-app logging-deployer-template -p {{ oc_process_values }} -p MODE=upgrade
+
+- name: "Wait for image pull and deployer pod"
+  shell: >
+      {{ openshift.common.client_binary }} --config={{ mktemp.stdout }}/admin.kubeconfig get pods | grep 'logging-deployer.*Completed'
+  register: result
+  until: result.rc == 0
+  retries: 15
+  delay: 10
+
+- include: deploy_cleanup.yaml
